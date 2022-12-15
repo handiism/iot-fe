@@ -3,6 +3,7 @@ import {
   FormControlLabel,
   FormLabel,
   Paper,
+  Snackbar,
   Table,
   TableBody,
   TableCell,
@@ -16,11 +17,12 @@ import { useEffect, useState } from "react";
 import Lamp, { Cell } from "./Data";
 import { Client, Message } from "paho-mqtt";
 import { nanoid } from "nanoid";
+import axios from "axios";
 
 const columns: Cell[] = [
   { key: "id", label: "ID" },
   { key: "status", label: "Status" },
-  { key: "timestamp", label: "Timestamp" },
+  { key: "time", label: "Timestamp" },
 ];
 
 const broker = process.env.REACT_APP_MQTT_BROKER_HOSTNAME || "";
@@ -40,18 +42,69 @@ export default function Dashboard() {
   const [status, setStatus] = useState<boolean>(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+  }>({
+    open: false,
+    message: "",
+  });
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
   };
 
+  useEffect(() => {
+    document.title = "IoT Smart Lamp";
+    axios
+      .get<Lamp[]>("http://127.0.0.1:3001/lamp")
+      .then((res) => {
+        if (res.data.length === 0) {
+          setStatus(false);
+        } else {
+          setStatus(res.data[res.data.length - 1].status);
+        }
+      })
+      .catch((e) => {
+        setStatus(false);
+      });
+  });
+
   client.onMessageArrived = (message: Message) => {
-    if (message.payloadString === "on") {
-      setStatus(true);
-    } else {
-      setStatus(false);
+    const nextStatus = message.payloadString === "on" ? true : false;
+
+    if (status !== nextStatus) {
+      axios
+        .post(`http://127.0.0.1:3001/lamp/${message.payloadString}`)
+        .then(() => {
+          if (message.payloadString === "on") {
+            setStatus(true);
+          } else {
+            setStatus(false);
+          }
+        })
+        .catch(() =>
+          setSnackbar({
+            open: true,
+            message: "Unable to process request",
+          })
+        );
     }
   };
+
+  useEffect(() => {
+    axios
+      .get<Lamp[]>("http://127.0.0.1:3001/lamp")
+      .then((res) => {
+        setLamps(res.data);
+      })
+      .catch(() =>
+        setSnackbar({
+          open: true,
+          message: "Unable to process request",
+        })
+      );
+  }, [status]);
 
   const handleChangeRowsPerPage = (
     event: React.ChangeEvent<HTMLInputElement>
@@ -60,30 +113,40 @@ export default function Dashboard() {
     setPage(0);
   };
 
-  useEffect(() => {
-    const lamp: Lamp = {
-      id: lamps.length === 0 ? 1 : lamps.length + 1,
-      status: status,
-      timestamp: new Date(),
-    };
-    setLamps([...lamps, lamp]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  const onClose = () => {
+    setSnackbar({
+      open: false,
+      message: "",
+    });
+  };
 
   return (
     <div className="w-screen h-screen grid grid-cols-2 gap-4">
-      <div className="grid h-screen place-items-center text-center">
-        <FormControl>
-          <FormLabel>
-            <span className="font-black">Status</span>
-          </FormLabel>
-          <FormControlLabel
-            control={<Switch size="medium" checked={status} />}
-            label={status ? "On" : "Off"}
-            disabled
-            labelPlacement="bottom"
-          />
-        </FormControl>
+      <Snackbar
+        anchorOrigin={{
+          horizontal: "center",
+          vertical: "bottom",
+        }}
+        autoHideDuration={2000}
+        open={snackbar.open}
+        onClose={onClose}
+        message={snackbar.message}
+      />
+      <div className="grid h-screen">
+        <h1 className="text-center font-medium text-5xl m-5">IoT Smart Lamp</h1>
+        <div className="place-items-center text-center">
+          <FormControl>
+            <FormLabel>
+              <span className="font-black">Status</span>
+            </FormLabel>
+            <FormControlLabel
+              control={<Switch size="medium" checked={status} />}
+              label={status ? "On" : "Off"}
+              disabled
+              labelPlacement="bottom"
+            />
+          </FormControl>
+        </div>
       </div>
       <div className="h-screen p-4">
         <Paper className="w-full overflow-hidden h-full">
@@ -100,7 +163,11 @@ export default function Dashboard() {
               </TableHead>
               <TableBody>
                 {lamps
-                  .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+                  .sort((a, b) => {
+                    return (
+                      new Date(b.time).getTime() - new Date(a.time).getTime()
+                    );
+                  })
                   .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                   .map((row) => {
                     return (
@@ -112,7 +179,7 @@ export default function Dashboard() {
                           {row.status ? "On" : "Off"}
                         </TableCell>
                         <TableCell component={"th"} scope="row" align="center">
-                          {row.timestamp.toString()}
+                          {new Date(row.time).toString()}
                         </TableCell>
                       </TableRow>
                     );

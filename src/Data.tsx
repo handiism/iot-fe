@@ -1,10 +1,10 @@
 export interface Cell {
-  key: "id" | "status" | "timestamp";
+  key: "id" | "status" | "time";
   label: string;
 }
 
 export default interface Lamp {
   id: number;
   status: boolean;
-  timestamp: Date;
+  time: Date;
 }
